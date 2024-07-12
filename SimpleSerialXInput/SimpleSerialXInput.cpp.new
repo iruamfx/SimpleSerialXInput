@@ -1,0 +1,138 @@
+#include <SimpleSerial.h>
+#include <chrono>
+#include <thread>
+#include <Xinput.h>
+#include <algorithm> // Consider removal in favour of own implementation for clamping
+#include <cstring> // Aswell. Serves for strlen()
+#include <windows.h>
+
+#pragma comment(lib, "XInput.lib")	// required for linker
+
+#define XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE  6849
+#define XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE 6689
+#define XINPUT_GAMEPAD_TRIGGER_THRESHOLD 15
+
+char com_port[] = "\\\\.\\COM3";
+DWORD COM_BAUD_RATE = CBR_9600;
+//SimpleSerial Serial(com_port, COM_BAUD_RATE);
+
+int main()
+{
+	// Open serial port
+	HANDLE serialHandle;
+
+	serialHandle = CreateFile("\\\\.\\COM3", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+
+	// Do some basic settings
+	DCB serialParams = { 0 };
+	serialParams.DCBlength = sizeof(serialParams);
+
+	GetCommState(serialHandle, &serialParams);
+	serialParams.BaudRate = 9600;
+	serialParams.ByteSize = 8;
+	serialParams.StopBits = 1;
+	serialParams.Parity = 0;
+	SetCommState(serialHandle, &serialParams);
+
+	// Set timeouts
+	COMMTIMEOUTS timeout = { 0 };
+	timeout.ReadIntervalTimeout = 50;
+	timeout.ReadTotalTimeoutConstant = 50;
+	timeout.ReadTotalTimeoutMultiplier = 50;
+	timeout.WriteTotalTimeoutConstant = 50;
+	timeout.WriteTotalTimeoutMultiplier = 10;
+
+	SetCommTimeouts(serialHandle, &timeout);
+
+
+	XINPUT_STATE gpState;	// Gamepad state
+	BYTE oldRT = 0;
+
+	int player = -1;	// Gamepad ID
+
+	// Polling all 4 gamepads to see who's alive
+	for (int i = 0; i < 4; i++)
+	{
+		DWORD res = XInputGetState(i, &gpState);	// Getting state
+		if (res == ERROR_SUCCESS)			// If alive - print message
+		{
+			printf("Controller #%d is ON!\n", i + 1);
+			player = i;	// Assign last alive gamepad as active
+		}
+	}
+	if (player < 0) // If player==-1 in other words...
+	{
+		printf("Haven't found any gamepads...\n");
+	}
+	else
+	{
+
+		while (true)
+		{
+			//system("CLS");					// Clear screen
+
+			SHORT LX = gpState.Gamepad.sThumbLX; // Get LX
+			SHORT LY = gpState.Gamepad.sThumbLY; // Get LY
+			double magnitudeL = sqrt(LX * LX + LY * LY);    // Calculate the radius of current position
+			// abs() does not work on double values due to the precision level. To bypass this, we cast sqrt() to a SHORT and then get its abs valu
+			if (magnitudeL < XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE) // Inside dead zone?
+			{
+				// Set all to 0
+				LX = 0.0;
+				LY = 0.0;
+			}
+
+			SHORT RX = gpState.Gamepad.sThumbRX; // Get RX
+			SHORT RY = gpState.Gamepad.sThumbRY; // Get RY
+			double magnitudeR = sqrt(RX * RX + RY * RY);     // Calculate the radius of current position
+			if (magnitudeR < XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE) // Inside dead zone?
+			{
+				// Set all to 0
+				RX = 0.0;
+				RY = 0.0;
+			}
+
+			BYTE RT = gpState.Gamepad.bRightTrigger; // Get RX
+			if (RT < XINPUT_GAMEPAD_TRIGGER_THRESHOLD) // Inside dead zone?
+			{
+				// Set all to 0
+				RT = 0.0;
+			}
+
+			memset(&gpState, 0, sizeof(XINPUT_STATE)); 	// Reset state
+			DWORD res = XInputGetState(0, &gpState);		// Get new state
+			printf("LX\tLY\tRX\tRY\tLTrig\tRTrig\tButtons\n"); // Print header
+
+			// Thumbstick values are divided by 256 for better consistency
+			printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+				LX / 256,
+				LY / 256,
+				RX / 256,
+				RY / 256,
+				gpState.Gamepad.bLeftTrigger,
+				RT,
+				gpState.Gamepad.wButtons);
+
+			printf("oldRT: %d RT %d\n", oldRT, RT);
+			if (RT != oldRT) {
+
+				GetCommState(serialHandle, &serialParams); 
+				if (serialParams.)
+				{
+					printf(Serial.WriteSerialPort((char*) &RT) ? "Sent\n" : "Not sent\n");
+				}
+				else
+				{
+					printf("%s", "Not connected\n");
+				}
+				printf("SENT SPEED: %i\n", RT);
+				oldRT = RT;
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+		}
+	}
+	CloseHandle(serialHandle);
+	system("PAUSE");
+	return 0;
+}
